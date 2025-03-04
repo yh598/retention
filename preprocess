@@ -1,3 +1,12 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count, when, isnan, year, month
+from pyspark.ml.feature import StringIndexer, VectorAssembler, StandardScaler
+from pyspark.ml.classification import RandomForestClassifier
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+# Initialize Spark Session
+spark = SparkSession.builder.appName("RetentionPrediction").getOrCreate()
+
 # Define null threshold (50% missing values)
 threshold = 0.5 * df.count()
 
