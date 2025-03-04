@@ -1,1 +1,10 @@
-1
+# Define null threshold (50% missing values)
+threshold = 0.5 * df.count()
+
+# Drop columns exceeding threshold
+null_counts = df.select([count(when(col(c).isNull(), c)).alias(c) for c in df.columns])
+high_null_cols = [col for col, count in null_counts.collect()[0].asDict().items() if count > threshold]
+df = df.drop(*high_null_cols)
+
+print("Dropped columns:", high_null_cols)
+df.printSchema()
