@@ -17,3 +17,60 @@ df = df.drop(*high_null_cols)
 
 print("Dropped columns:", high_null_cols)
 df.printSchema()
+
+from pyspark.sql.functions import mean
+
+# Fill numeric columns with mean or median
+numeric_cols = [c for c, t in df.dtypes if t in ("int", "double")]
+for col_name in numeric_cols:
+    median_value = df.approxQuantile(col_name, [0.5], 0.01)[0]  # Approximate median
+    df = df.fillna({col_name: median_value})
+
+# Fill categorical columns with mode
+categorical_cols = [c for c, t in df.dtypes if t == "string"]
+for col_name in categorical_cols:
+    mode_value = df.groupBy(col_name).count().orderBy(col("count").desc()).first()[0]
+    df = df.fillna({col_name: mode_value})
+
+df.show(5)
+
+from pyspark.ml.feature import StringIndexer, VectorAssembler
+
+# Convert categorical features
+indexers = [StringIndexer(inputCol=col_name, outputCol=f"{col_name}_index").fit(df) for col_name in categorical_cols]
+for indexer in indexers:
+    df = indexer.transform(df)
+
+# Extract date-based features
+df = df.withColumn("study_start_year", year(col("STUDY_START_DT")))
+df = df.withColumn("study_start_month", month(col("STUDY_START_DT")))
+
+# Drop original categorical & date columns
+df = df.drop(*categorical_cols, "STUDY_START_DT")
+
+# Define feature columns (excluding target)
+feature_cols = [c for c in df.columns if c != "survival_flag"]
+
+# Assemble feature vector
+assembler = VectorAssembler(inputCols=feature_cols, outputCol="features")
+df = assembler.transform(df).select("features", "survival_flag")
+
+df.show(5)
+
+# Split data (80% train, 20% test)
+train_data, test_data = df.randomSplit([0.8, 0.2], seed=42)
+
+# Define RandomForest Model
+rf_model = RandomForestClassifier(featuresCol="features", labelCol="survival_flag", numTrees=100)
+
+# Train the model
+rf_trained = rf_model.fit(train_data)
+
+# Make Predictions
+predictions = rf_trained.transform(test_data)
+predictions.select("survival_flag", "prediction", "probability").show(10)
+
+evaluator = BinaryClassificationEvaluator(labelCol="survival_flag", metricName="areaUnderROC")
+roc_auc = evaluator.evaluate(predictions)
+
+print(f"Model AUC-ROC: {roc_auc}")
