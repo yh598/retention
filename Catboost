@@ -1,0 +1,143 @@
+# ==============================
+# 📌 Step 1: Load Required Libraries
+# ==============================
+import pandas as pd
+import numpy as np
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count, when, isnan, year, month
+from pyspark.ml.feature import StringIndexer
+
+from catboost import CatBoostClassifier, Pool
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, roc_auc_score, classification_report
+from imblearn.under_sampling import RandomUnderSampler
+from imblearn.over_sampling import SMOTE
+
+# Initialize Spark Session
+spark = SparkSession.builder.appName("RetentionPrediction").getOrCreate()
+
+# ==============================
+# 📌 Step 2: Load Parquet Data
+# ==============================
+file_path = "your_dataset.parquet"  # Replace with actual file path
+df = spark.read.parquet(file_path)
+
+df.printSchema()
+df.show(5)
+
+# ==============================
+# 📌 Step 3: Drop Unnecessary Columns
+# ==============================
+drop_columns = [col for col in df.columns if "_HASH" in col or 
+                "_ID" in col or 
+                "NAME" in col or 
+                "PHONE" in col or 
+                "EMAIL" in col or 
+                "ADDRESS" in col or 
+                "FIPS" in col or 
+                "TRACTCODE" in col or 
+                "CENSUS" in col]
+
+df = df.drop(*drop_columns)
+
+print("Dropped columns:", drop_columns)
+df.printSchema()
+
+# ==============================
+# 📌 Step 4: Handle Missing Values
+# ==============================
+numeric_cols = [c for c, t in df.dtypes if t in ("int", "double")]
+for col_name in numeric_cols:
+    median_value = df.approxQuantile(col_name, [0.5], 0.01)[0]
+    df = df.fillna({col_name: median_value})
+
+categorical_cols = [c for c, t in df.dtypes if t == "string"]
+for col_name in categorical_cols:
+    mode_value = df.groupBy(col_name).count().orderBy(col("count").desc()).first()[0]
+    df = df.fillna({col_name: mode_value})
+
+# ==============================
+# 📌 Step 5: Feature Engineering
+# ==============================
+indexers = [StringIndexer(inputCol=col_name, outputCol=f"{col_name}_index").fit(df) for col_name in categorical_cols]
+for indexer in indexers:
+    df = indexer.transform(df)
+
+df = df.withColumn("study_start_year", year(col("STUDY_START_DT")))
+df = df.withColumn("study_start_month", month(col("STUDY_START_DT")))
+df = df.drop(*categorical_cols, "STUDY_START_DT")
+
+df.show(5)
+
+# ==============================
+# 📌 Step 6: Convert Spark DataFrame to Pandas
+# ==============================
+df_pandas = df.toPandas()
+
+target = "survival_flag"
+features = [c for c in df_pandas.columns if c != target]
+cat_features = [col for col in df_pandas.columns if "_index" in col]
+
+# ==============================
+# 📌 Step 7: Handle Class Imbalance
+# ==============================
+retention_rate = df_pandas[target].mean()
+print(f"Retention Rate: {retention_rate:.2%}")
+
+X_train, X_test, y_train, y_test = train_test_split(df_pandas[features], df_pandas[target], test_size=0.2, random_state=42)
+
+if retention_rate > 0.80:
+    total_samples = len(y_train)
+    class_0_weight = total_samples / (2 * sum(y_train == 0))
+    class_1_weight = total_samples / (2 * sum(y_train == 1))
+    class_weights = [class_0_weight, class_1_weight]
+
+    undersampler = RandomUnderSampler(sampling_strategy=0.5, random_state=42)
+    X_train, y_train = undersampler.fit_resample(X_train, y_train)
+
+    smote = SMOTE(sampling_strategy=0.5, random_state=42)
+    X_train, y_train = smote.fit_resample(X_train, y_train)
+else:
+    class_weights = None
+
+# ==============================
+# 📌 Step 8: Train CatBoost Model
+# ==============================
+train_pool = Pool(X_train, label=y_train, cat_features=cat_features)
+test_pool = Pool(X_test, label=y_test, cat_features=cat_features)
+
+cat_model = CatBoostClassifier(
+    iterations=500, depth=8, learning_rate=0.05, loss_function="Logloss",
+    eval_metric="AUC", verbose=100, class_weights=class_weights
+)
+
+cat_model.fit(train_pool, eval_set=test_pool, early_stopping_rounds=50)
+
+# ==============================
+# 📌 Step 9: Evaluate Model Performance
+# ==============================
+y_pred = cat_model.predict(X_test)
+y_pred_proba = cat_model.predict_proba(X_test)[:, 1]
+
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("AUC-ROC Score:", roc_auc_score(y_test, y_pred_proba))
+print(classification_report(y_test, y_pred))
+
+# ==============================
+# 📌 Step 10: Save Model & Predict on New Data
+# ==============================
+cat_model.save_model("catboost_retention_model.cbm")
+print("Model saved successfully!")
+
+# Load new dataset
+new_data = spark.read.parquet("new_data.parquet")
+for indexer in indexers:
+    new_data = indexer.transform(new_data)
+
+new_data = new_data.withColumn("study_start_year", year(col("STUDY_START_DT")))
+new_data = new_data.withColumn("study_start_month", month(col("STUDY_START_DT")))
+new_data = new_data.drop(*categorical_cols, "STUDY_START_DT")
+
+new_data_pandas = new_data.toPandas()
+new_predictions = cat_model.predict(new_data_pandas[features])
+print(new_predictions)
