@@ -1,0 +1,8 @@
+import pandas as pd
+
+# Convert all object (string) columns to numeric, coercing errors
+for col in pandas_df.select_dtypes(include=['object']).columns:
+    pandas_df[col] = pd.to_numeric(pandas_df[col], errors='coerce')
+
+# Check if conversion was successful
+print(pandas_df.dtypes)
