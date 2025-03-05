@@ -175,3 +175,26 @@ feature_importance_df = feature_importance_df.sort_values(by="Importance", ascen
 import ace_tools as tools
 tools.display_dataframe_to_user(name="Feature Importance", dataframe=feature_importance_df)
 print(new_predictions)
+from pyspark.ml.feature import Imputer
+from pyspark.sql.functions import col
+
+# ✅ Identify Numeric and Categorical Columns
+numeric_cols = [col_name for col_name, dtype in df1.dtypes if dtype in ('int', 'double') or dtype.startswith('decimal')]
+categorical_cols = [col_name for col_name, dtype in df1.dtypes if dtype == 'string']
+
+# ✅ Convert Decimal Columns to Double for Imputation
+for col_name, dtype in df1.dtypes:
+    if dtype.startswith("decimal"):
+        df1 = df1.withColumn(col_name, col(col_name).cast("double"))
+
+# ✅ Handle Missing Values for Numerical Columns WITHOUT Renaming Columns
+num_imputer = Imputer(strategy="median", inputCols=numeric_cols, outputCols=numeric_cols)  # Keep original names
+df2 = num_imputer.fit(df1).transform(df1)
+
+# ✅ Handle Missing Values for Categorical Columns WITHOUT Encoding (CatBoost can handle them as-is)
+df2 = df2.fillna({col_name: "missing" for col_name in categorical_cols})
+
+# ✅ Check Missing Values After Handling
+df2.select([(col(c).isNull().cast("int")).alias(c) for c in df2.columns]).show()
+
+
