@@ -197,4 +197,70 @@ df2 = df2.fillna({col_name: "missing" for col_name in categorical_cols})
 # ✅ Check Missing Values After Handling
 df2.select([(col(c).isNull().cast("int")).alias(c) for c in df2.columns]).show()
 
+import pandas as pd
+import numpy as np
+from catboost import CatBoostClassifier, Pool
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, roc_auc_score, precision_recall_curve, auc
 
+# Define target variable and feature columns
+target_col = "churn_flag_imputed"
+feature_cols = [col for col in pandas_df.columns if col != target_col]
+
+X = pandas_df[feature_cols]
+y = pandas_df[target_col]
+
+# Identify categorical columns
+categorical_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+# Convert categorical variables to strings (CatBoost handles them natively)
+for col in categorical_cols:
+    X[col] = X[col].astype(str)
+
+# Train-Test Split (Maintain Class Distribution)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
+
+# Compute class weights to handle imbalance
+class_weights = {
+    0: len(y_train) / (2 * (y_train == 0).sum()),
+    1: len(y_train) / (2 * (y_train == 1).sum())
+}
+
+# Use Pool object for CatBoost
+train_pool = Pool(data=X_train, label=y_train, cat_features=categorical_cols)
+test_pool = Pool(data=X_test, label=y_test, cat_features=categorical_cols)
+
+# Initialize and train CatBoost classifier with class weights
+catboost_model = CatBoostClassifier(
+    iterations=500, depth=6, learning_rate=0.1, verbose=100,
+    class_weights=[class_weights[0], class_weights[1]], loss_function="Logloss"
+)
+
+catboost_model.fit(train_pool)
+
+# Get predictions
+y_pred_prob = catboost_model.predict_proba(test_pool)[:, 1]
+y_pred = (y_pred_prob > 0.5).astype(int)
+
+# Evaluate model performance
+roc_auc = roc_auc_score(y_test, y_pred_prob)
+precision, recall, _ = precision_recall_curve(y_test, y_pred_prob)
+pr_auc = auc(recall, precision)
+
+print("ROC AUC Score:", round(roc_auc, 4))
+print("Precision-Recall AUC:", round(pr_auc, 4))
+print("\nClassification Report:\n", classification_report(y_test, y_pred))
+
+# Get feature importance
+feature_importance = catboost_model.get_feature_importance()
+feature_importance_df = pd.DataFrame({"Feature": feature_cols, "Importance": feature_importance})
+
+# Sort by importance and display top features
+feature_importance_df = feature_importance_df.sort_values(by="Importance", ascending=False)
+print("Most Important Features:\n", feature_importance_df.head(10))
+
+# Display feature importance table
+import ace_tools as tools
+tools.display_dataframe_to_user(name="Feature Importance", dataframe=feature_importance_df)
