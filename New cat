@@ -1,0 +1,111 @@
+import pandas as pd
+import numpy as np
+import shap
+from catboost import CatBoostClassifier, Pool
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.metrics import classification_report, roc_auc_score, precision_recall_curve, auc
+
+# Load data
+target_col = "churn_flag_imputed"
+feature_cols = [col for col in pandas_df.columns if col != target_col]
+
+X = pandas_df[feature_cols]
+y = pandas_df[target_col]
+
+# Identify categorical columns
+categorical_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+# Convert categorical variables to strings (CatBoost handles them natively)
+for col in categorical_cols:
+    X[col] = X[col].astype(str)
+
+# Train-Test Split (Maintain Class Distribution)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
+
+# Compute class weights for imbalance handling
+class_weights = {
+    0: len(y_train) / (2 * (y_train == 0).sum()),
+    1: len(y_train) / (2 * (y_train == 1).sum())
+}
+
+# Use Pool object for CatBoost
+train_pool = Pool(data=X_train, label=y_train, cat_features=categorical_cols)
+test_pool = Pool(data=X_test, label=y_test, cat_features=categorical_cols)
+
+# Train a basic CatBoost model to get feature importance
+catboost_model = CatBoostClassifier(iterations=500, depth=6, learning_rate=0.1, verbose=0)
+catboost_model.fit(train_pool)
+
+# Get feature importance and select the top 30 features
+feature_importance = catboost_model.get_feature_importance()
+feature_importance_df = pd.DataFrame({"Feature": feature_cols, "Importance": feature_importance})
+top_30_features = feature_importance_df.sort_values(by="Importance", ascending=False).head(30)["Feature"].tolist()
+
+# Filter dataset to keep only the top 30 features
+X_train_top = X_train[top_30_features]
+X_test_top = X_test[top_30_features]
+
+# Update categorical columns list for the top 30 features
+categorical_cols_top = [col for col in categorical_cols if col in top_30_features]
+
+# Use Pool object with top 30 features
+train_pool_top = Pool(data=X_train_top, label=y_train, cat_features=categorical_cols_top)
+test_pool_top = Pool(data=X_test_top, label=y_test, cat_features=categorical_cols_top)
+
+# Define parameter grid for tuning
+param_grid = {
+    "depth": [4, 6, 8],
+    "learning_rate": [0.01, 0.05, 0.1],
+    "iterations": [500, 1000],
+    "l2_leaf_reg": [1, 3, 5],
+    "border_count": [32, 64]
+}
+
+# Perform Grid Search for best parameters
+catboost_model_tuned = CatBoostClassifier(verbose=0, loss_function="Logloss")
+grid_search = GridSearchCV(catboost_model_tuned, param_grid, cv=3, scoring="roc_auc", n_jobs=-1)
+grid_search.fit(X_train_top, y_train)
+
+# Get the best model parameters
+best_params = grid_search.best_params_
+print("Best Parameters Found:", best_params)
+
+# Train CatBoost with best parameters
+catboost_final = CatBoostClassifier(**best_params, verbose=100)
+catboost_final.fit(train_pool_top)
+
+# Get predictions
+y_pred_prob = catboost_final.predict_proba(test_pool_top)[:, 1]
+y_pred = (y_pred_prob > 0.5).astype(int)
+
+# Evaluate model performance
+roc_auc = roc_auc_score(y_test, y_pred_prob)
+precision, recall, _ = precision_recall_curve(y_test, y_pred_prob)
+pr_auc = auc(recall, precision)
+
+print("ROC AUC Score:", round(roc_auc, 4))
+print("Precision-Recall AUC:", round(pr_auc, 4))
+print("\nClassification Report:\n", classification_report(y_test, y_pred))
+
+# Display feature importance
+feature_importance_final = catboost_final.get_feature_importance()
+feature_importance_df_final = pd.DataFrame({"Feature": top_30_features, "Importance": feature_importance_final})
+feature_importance_df_final = feature_importance_df_final.sort_values(by="Importance", ascending=False)
+
+import ace_tools as tools
+tools.display_dataframe_to_user(name="Feature Importance (Top 30)", dataframe=feature_importance_df_final)
+
+# Explain the model with SHAP
+explainer = shap.TreeExplainer(catboost_final)
+shap_values = explainer.shap_values(X_test_top)
+
+# SHAP Summary Plot (Feature Importance)
+shap.summary_plot(shap_values, X_test_top)
+
+# SHAP Waterfall Plot (Explains one specific prediction)
+shap.waterfall_plot(shap.Explanation(values=shap_values[0], base_values=explainer.expected_value, data=X_test_top.iloc[0]))
+
+# SHAP Dependence Plot (Shows impact of a single feature)
+shap.dependence_plot(top_30_features[0], shap_values, X_test_top)
