@@ -140,4 +140,38 @@ new_data = new_data.drop(*categorical_cols, "STUDY_START_DT")
 
 new_data_pandas = new_data.toPandas()
 new_predictions = cat_model.predict(new_data_pandas[features])
+
+import pandas as pd
+import catboost
+from catboost import CatBoostClassifier
+from pyspark.sql.functions import col
+from pyspark.ml.feature import VectorAssembler
+
+# Convert Spark DataFrame to Pandas
+pandas_df = sql_df.toPandas()
+
+# Define Features and Target Variable
+target_col = "survival_flag"  # Assuming 'survival_flag' is the target column
+feature_cols = [col for col in pandas_df.columns if col != target_col]
+
+X = pandas_df[feature_cols]
+y = pandas_df[target_col]
+
+# Convert categorical columns to string (if needed for CatBoost)
+categorical_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+# Initialize and Train CatBoost Classifier
+catboost_model = CatBoostClassifier(iterations=200, depth=6, learning_rate=0.1, verbose=0)
+catboost_model.fit(X, y, cat_features=categorical_cols)
+
+# Get Feature Importances
+feature_importance = catboost_model.get_feature_importance()
+feature_importance_df = pd.DataFrame({"Feature": feature_cols, "Importance": feature_importance})
+
+# Sort by importance
+feature_importance_df = feature_importance_df.sort_values(by="Importance", ascending=False)
+
+# Show top 10 features
+import ace_tools as tools
+tools.display_dataframe_to_user(name="Feature Importance", dataframe=feature_importance_df)
 print(new_predictions)
