@@ -1,0 +1,66 @@
+import pandas as pd
+from catboost import CatBoostClassifier, Pool
+
+# ✅ Load data (Replace this with your actual DataFrame)
+# pandas_df = pd.read_csv("your_data.csv")  # Uncomment if reading from a CSV
+
+# ✅ Define target variable and feature columns
+target_col = "churn_flag_imputed"  # Update with your actual target column name
+feature_cols = [col for col in pandas_df.columns if col != target_col]
+
+X = pandas_df[feature_cols]
+y = pandas_df[target_col]
+
+# ✅ Identify categorical columns
+categorical_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+# 🔍 Debugging Step 1: Print feature information
+print("🔹 Feature Columns:", feature_cols)
+print("🔹 Categorical Columns:", categorical_cols)
+print(f"🔹 X Shape: {X.shape}, y Shape: {y.shape}")
+print(f"🔹 Data Types:\n{X.dtypes}")
+
+# ✅ Ensure categorical columns are not empty
+if not categorical_cols:
+    raise ValueError("❌ Categorical columns list is empty or None. Check data preprocessing.")
+
+# ✅ Handle Missing Values in Features & Target
+print("🔍 Checking for missing values...\n")
+print("Missing values in X:\n", X.isnull().sum())
+print("Missing values in y:\n", y.isnull().sum())
+
+# Fill missing values in features
+X = X.fillna(-999)  # Replace NaNs with a placeholder for numerical features
+
+# Fill missing values in categorical columns with 'missing'
+X[categorical_cols] = X[categorical_cols].fillna("missing")
+
+# Fill missing values in target column (if necessary)
+if y.isnull().sum() > 0:
+    y = y.fillna(y.mode()[0])  # Replace NaNs in target with most frequent value
+
+# ✅ Ensure categorical variables are strings
+for col in categorical_cols:
+    X[col] = X[col].astype(str)
+
+# 🔍 Debugging Step 2: Re-check missing values after fixes
+print("✅ Missing values after preprocessing:\n", X.isnull().sum())
+
+# ✅ Use Pool Object for Robust Data Handling
+train_pool = Pool(data=X, label=y, cat_features=categorical_cols)
+
+# ✅ Initialize and Train CatBoost Classifier
+catboost_model = CatBoostClassifier(iterations=200, depth=6, learning_rate=0.1, verbose=0)
+catboost_model.fit(train_pool)
+
+# ✅ Get Feature Importances
+feature_importance = catboost_model.get_feature_importance()
+feature_importance_df = pd.DataFrame({"Feature": feature_cols, "Importance": feature_importance})
+
+# ✅ Sort by importance and display top 10 features
+feature_importance_df = feature_importance_df.sort_values(by="Importance", ascending=False)
+print("📊 Top 10 Most Important Features:\n", feature_importance_df.head(10))
+
+# ✅ Display feature importance as a table
+import ace_tools as tools
+tools.display_dataframe_to_user(name="Feature Importance", dataframe=feature_importance_df)
