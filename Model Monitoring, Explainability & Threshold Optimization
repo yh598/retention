@@ -1,0 +1,126 @@
+# 📌 Install Required Libraries
+!pip install shap lime pdpbox plotly scikit-learn pandas numpy matplotlib seaborn scipy
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import shap
+import lime
+import lime.lime_tabular
+from pdpbox import pdp, info_plots
+from scipy.stats import ks_2samp
+from sklearn.metrics import roc_auc_score, roc_curve, classification_report, confusion_matrix, precision_recall_curve
+
+# 📌 Step 1: KS Statistic Calculation
+def ks_statistic(y_true, y_pred_prob):
+    churn_probs = y_pred_prob[y_true == 1]
+    non_churn_probs = y_pred_prob[y_true == 0]
+    ks_stat, p_value = ks_2samp(churn_probs, non_churn_probs)
+    return ks_stat
+
+# 📌 Step 2: Lift Table Calculation
+def lift_table(y_true, y_pred_prob, bins=10):
+    df = pd.DataFrame({"actual": y_true, "predicted_prob": y_pred_prob})
+    df["decile"] = pd.qcut(df["predicted_prob"], bins, labels=False, duplicates="drop")
+    
+    lift_df = df.groupby("decile").agg(
+        count=("actual", "count"),
+        events=("actual", "sum"),
+        avg_prob=("predicted_prob", "mean")
+    ).reset_index()
+    
+    lift_df["event_rate"] = lift_df["events"] / lift_df["count"]
+    lift_df["cumulative_events"] = lift_df["events"].cumsum()
+    lift_df["cumulative_event_rate"] = lift_df["cumulative_events"] / lift_df["cumulative_events"].max()
+    
+    return lift_df
+
+# 📌 Step 3: Model Performance & Optimal Threshold Selection
+def model_performance(y_test, y_pred_prob):
+    auc = roc_auc_score(y_test, y_pred_prob)
+    ks_stat = ks_statistic(y_test, y_pred_prob)
+    fpr, tpr, _ = roc_curve(y_test, y_pred_prob)
+
+    plt.figure(figsize=(6, 6))
+    plt.plot(fpr, tpr, label=f"AUC: {auc:.4f}", color="blue")
+    plt.plot([0, 1], [0, 1], linestyle="--", color="gray")
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("ROC Curve")
+    plt.legend()
+    plt.show()
+    
+    print(f"✅ KS Statistic: {ks_stat:.4f}")
+    
+    # Compute Best Threshold using F1-score
+    precision, recall, thresholds = precision_recall_curve(y_test, y_pred_prob)
+    f1_scores = (2 * precision * recall) / (precision + recall)
+    best_threshold = thresholds[np.argmax(f1_scores)]
+    
+    print(f"✅ Best Decision Threshold: {best_threshold:.4f}")
+    
+    y_pred = (y_pred_prob >= best_threshold).astype(int)
+    conf_matrix = confusion_matrix(y_test, y_pred)
+    
+    plt.figure(figsize=(5, 4))
+    sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="coolwarm", xticklabels=["No Churn", "Churn"], yticklabels=["No Churn", "Churn"])
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    plt.title("Confusion Matrix")
+    plt.show()
+    
+    print("\n✅ Classification Report:")
+    print(classification_report(y_test, y_pred))
+
+    lift_df = lift_table(y_test, y_pred_prob)
+    print("\n✅ Lift Table:")
+    display(lift_df)
+
+# 📌 Step 4: Feature Explainability with SHAP
+def explain_model_shap(model, X_test):
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X_test)
+
+    shap.summary_plot(shap_values, X_test)  # Feature Importance Plot
+    shap.dependence_plot(X_test.columns[0], shap_values, X_test)  # Dependence Plot for Most Important Feature
+    shap.waterfall_plot(shap.Explanation(values=shap_values[0], base_values=explainer.expected_value, data=X_test.iloc[0]))  # Single Prediction Explainability
+
+# 📌 Step 5: Feature Explainability with LIME
+def explain_model_lime(model, X_train, X_test):
+    lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+        training_data=np.array(X_train), 
+        feature_names=X_train.columns, 
+        class_names=["No Churn", "Churn"], 
+        mode="classification"
+    )
+
+    lime_exp = lime_explainer.explain_instance(
+        X_test.iloc[0].values, 
+        model.predict_proba
+    )
+    
+    lime_exp.show_in_notebook()
+
+# 📌 Step 6: Feature Interaction with PDP (Partial Dependence Plots)
+def explain_model_pdp(model, X_test):
+    pdp_feature = X_test.columns[0]  # First important feature
+    
+    pdp_interaction = pdp.pdp_isolate(
+        model=model, dataset=X_test, model_features=X_test.columns, feature=pdp_feature
+    )
+
+    fig, axes = pdp.pdp_plot(pdp_interaction, pdp_feature, plot_pts=True)
+    plt.show()
+
+# 📌 Example Usage with Model Predictions
+# Assume `y_test` and `y_pred_prob` are generated from a trained model
+y_test = np.random.randint(0, 2, size=1000)  # Replace with actual labels
+y_pred_prob = np.random.rand(1000)  # Replace with actual model probabilities
+
+model_performance(y_test, y_pred_prob)
+
+# Assume `catboost_final` is the trained CatBoost model
+explain_model_shap(catboost_final, X_test)
+explain_model_lime(catboost_final, X_train, X_test)
+explain_model_pdp(catboost_final, X_test)
