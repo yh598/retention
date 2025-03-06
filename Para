@@ -1,0 +1,81 @@
+# 1️⃣ Bayesian Optimization (Optuna)
+import optuna
+from catboost import CatBoostClassifier
+from sklearn.metrics import roc_auc_score
+
+def objective(trial):
+    param = {
+        "depth": trial.suggest_int("depth", 4, 8),
+        "learning_rate": trial.suggest_loguniform("learning_rate", 0.01, 0.1),
+        "iterations": trial.suggest_categorical("iterations", [500, 1000, 1500]),
+        "l2_leaf_reg": trial.suggest_int("l2_leaf_reg", 3, 10),
+        "border_count": trial.suggest_categorical("border_count", [32, 64, 128]),
+        "random_strength": trial.suggest_uniform("random_strength", 0, 3),
+        "thread_count": -1,
+        "verbose": 0
+    }
+
+    model = CatBoostClassifier(**param, loss_function="Logloss")
+    model.fit(X_train_top, y_train, eval_set=(X_test_top, y_test), early_stopping_rounds=50, verbose=0)
+
+    return roc_auc_score(y_test, model.predict_proba(X_test_top)[:, 1])
+
+study = optuna.create_study(direction="maximize")
+study.optimize(objective, n_trials=30)
+
+best_params = study.best_params
+print("✅ Best Parameters Found:", best_params)
+
+# 2️⃣ Randomized Search (RandomizedSearchCV)
+from sklearn.model_selection import RandomizedSearchCV
+
+param_dist = {
+    "depth": [4, 5, 6, 7, 8],
+    "learning_rate": np.logspace(-3, -1, 5),
+    "iterations": [500, 1000, 1500],
+    "l2_leaf_reg": [3, 5, 10],
+    "border_count": [32, 64, 128],
+}
+
+catboost_model_tuned = CatBoostClassifier(verbose=0, loss_function="Logloss", thread_count=-1)
+
+random_search = RandomizedSearchCV(
+    estimator=catboost_model_tuned, 
+    param_distributions=param_dist, 
+    n_iter=15,  
+    scoring="roc_auc", 
+    cv=3, 
+    n_jobs=-1, 
+    random_state=42
+)
+
+random_search.fit(X_train_top, y_train)
+best_params = random_search.best_params_
+print("✅ Best Parameters Found:", best_params)
+
+# 3️⃣ Parallelization (n_jobs=-1, thread_count=-1)
+grid_search = GridSearchCV(
+    CatBoostClassifier(verbose=0, loss_function="Logloss", thread_count=-1),  
+    param_grid=param_dist, 
+    cv=3, 
+    scoring="roc_auc", 
+    n_jobs=-1 
+)
+grid_search.fit(X_train_top, y_train)
+
+# 4️⃣ Early Stopping to Prevent Overfitting
+catboost_final = CatBoostClassifier(
+    iterations=1000, 
+    early_stopping_rounds=50,  
+    verbose=100
+)
+catboost_final.fit(X_train_top, y_train, eval_set=(X_test_top, y_test))
+
+# 5️⃣ Best Model Selection (best_model=True)
+catboost_final = CatBoostClassifier(
+    iterations=1000, 
+    depth=6, 
+    learning_rate=0.05, 
+    best_model=True 
+)
+catboost_final.fit(X_train_top, y_train, eval_set=(X_test_top, y_test))
