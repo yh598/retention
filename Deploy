@@ -1,0 +1,164 @@
+# 📌 STEP 1: Install & Import Required Libraries
+# ---------------------------------------------
+# This installs and imports all necessary libraries for:
+# - Machine Learning (CatBoost, Scikit-learn)
+# - Data Processing (Pandas, NumPy)
+# - Model Deployment (Flask)
+# - Model Explainability (SHAP)
+!pip install catboost shap flask joblib pandas numpy scikit-learn
+
+import pandas as pd
+import numpy as np
+import joblib
+import shap
+from catboost import CatBoostClassifier, Pool
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.metrics import classification_report, roc_auc_score, precision_recall_curve, auc, f1_score
+import warnings
+
+warnings.filterwarnings("ignore")
+
+# 📌 STEP 2: Load & Preprocess Data
+# ---------------------------------------------
+# - Load dataset (replace with actual path)
+# - Define target and feature columns
+# - Identify categorical variables
+# - Convert categorical variables to string (CatBoost handles them natively)
+pandas_df = pd.read_csv("customer_data.csv")  # Replace with actual dataset
+
+target_col = "churn_flag_imputed"
+feature_cols = [col for col in pandas_df.columns if col != target_col]
+
+X = pandas_df[feature_cols]
+y = pandas_df[target_col]
+
+categorical_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+for col in categorical_cols:
+    X[col] = X[col].astype(str)
+
+# 📌 STEP 3: Train-Test Split & Handle Class Imbalance
+# ---------------------------------------------
+# - Split the dataset into 80% train, 20% test
+# - Compute class weights for handling imbalance
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
+
+class_weights = {
+    0: len(y_train) / (2 * (y_train == 0).sum()),
+    1: len(y_train) / (2 * (y_train == 1).sum())
+}
+
+# Create Pool objects for CatBoost
+train_pool = Pool(data=X_train, label=y_train, cat_features=categorical_cols)
+test_pool = Pool(data=X_test, label=y_test, cat_features=categorical_cols)
+
+# 📌 STEP 4: Train Initial Model & Select Top 30 Features
+# ---------------------------------------------
+# - Train a basic CatBoost model to get feature importance
+# - Select top 30 features based on importance
+catboost_model = CatBoostClassifier(iterations=500, depth=6, learning_rate=0.1, verbose=0)
+catboost_model.fit(train_pool)
+
+feature_importance = catboost_model.get_feature_importance()
+feature_importance_df = pd.DataFrame({"Feature": feature_cols, "Importance": feature_importance})
+top_30_features = feature_importance_df.sort_values(by="Importance", ascending=False).head(30)["Feature"].tolist()
+
+X_train_top = X_train[top_30_features]
+X_test_top = X_test[top_30_features]
+
+categorical_cols_top = [col for col in categorical_cols if col in top_30_features]
+
+train_pool_top = Pool(data=X_train_top, label=y_train, cat_features=categorical_cols_top)
+test_pool_top = Pool(data=X_test_top, label=y_test, cat_features=categorical_cols_top)
+
+# 📌 STEP 5: Hyperparameter Tuning with Grid Search
+# ---------------------------------------------
+# - Use GridSearchCV to find the best hyperparameters
+param_grid = {
+    "depth": [4, 5, 6],
+    "learning_rate": [0.01, 0.03, 0.05],
+    "iterations": [500, 1000],
+    "l2_leaf_reg": [3, 5, 10],
+    "border_count": [32, 64]
+}
+
+catboost_model_tuned = CatBoostClassifier(verbose=0, loss_function="Logloss")
+grid_search = GridSearchCV(catboost_model_tuned, param_grid, cv=3, scoring="roc_auc", n_jobs=-1)
+grid_search.fit(X_train_top, y_train)
+
+best_params = grid_search.best_params_
+print("Best Parameters Found:", best_params)
+
+# 📌 STEP 6: Train Final Model with Optimized Parameters & Anti-Overfitting Measures
+# ---------------------------------------------
+# - Use best hyperparameters
+# - Apply L2 regularization, random strength, and early stopping
+catboost_final = CatBoostClassifier(
+    **best_params, 
+    l2_leaf_reg=10,
+    random_strength=2,
+    early_stopping_rounds=50,
+    verbose=100
+)
+catboost_final.fit(train_pool_top, eval_set=test_pool_top)
+
+# 📌 STEP 7: Save the Trained Model for Deployment
+# ---------------------------------------------
+joblib.dump(catboost_final, "churn_prediction_model.pkl")
+print("Model saved successfully.")
+
+# 📌 STEP 8: Load Model & Define Real-Time Prediction Function
+# ---------------------------------------------
+# - Loads trained model
+# - Defines function to predict churn probability & classify risk levels
+catboost_loaded = joblib.load("churn_prediction_model.pkl")
+
+def predict_churn(new_data):
+    for col in categorical_cols_top:
+        new_data[col] = new_data[col].astype(str)
+    
+    new_prob = catboost_loaded.predict_proba(new_data)[:, 1]
+    
+    risk_category = np.where(new_prob > 0.8, "High Risk",
+                    np.where(new_prob > 0.5, "Medium Risk", "Low Risk"))
+    
+    return pd.DataFrame({"Churn Probability": new_prob, "Risk Category": risk_category})
+
+# 📌 STEP 9: Customer Segmentation for Retention
+# ---------------------------------------------
+# - Classifies customers into High, Medium, Low risk groups
+full_predictions = predict_churn(X_test_top)
+
+customer_segments = X_test_top.copy()
+customer_segments["Churn Probability"] = full_predictions["Churn Probability"]
+customer_segments["Risk Category"] = full_predictions["Risk Category"]
+
+import ace_tools as tools
+tools.display_dataframe_to_user(name="Customer Churn Segmentation", dataframe=customer_segments)
+
+print(customer_segments["Risk Category"].value_counts())
+
+# 📌 STEP 10: Deploy Churn Prediction API using Flask
+# ---------------------------------------------
+# - Creates a Flask API to serve churn predictions
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route("/predict", methods=["POST"])
+def predict():
+    data = request.get_json()
+    df = pd.DataFrame(data)
+
+    for col in categorical_cols_top:
+        df[col] = df[col].astype(str)
+
+    prob = catboost_loaded.predict_proba(df)[:, 1]
+    risk_category = ["High Risk" if p > 0.8 else "Medium Risk" if p > 0.5 else "Low Risk" for p in prob]
+
+    return jsonify({"churn_probability": prob.tolist(), "risk_category": risk_category})
+
+if __name__ == "__main__":
+    app.run(port=5000, debug=True)
