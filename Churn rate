@@ -30,3 +30,8 @@ plt.grid(axis="y", linestyle="--", alpha=0.6)
 
 # Show the plot
 plt.show()
+
+# Compute overall churn rate
+average_churn_rate = df_churn_pd["churn_rate"].mean()
+
+print(f"Average Churn Rate: {average_churn_rate:.2f}%")
