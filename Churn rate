@@ -1,0 +1,32 @@
+from pyspark.sql import functions as F
+
+# Aggregate churned and total users per year
+df_churn = df.groupBy("open_enrollment_cycle").agg(
+    F.sum(F.when(F.col("survival_flag") == 0, 1).otherwise(0)).alias("churned_users"),
+    F.count("*").alias("total_users")
+)
+
+# Compute churn rate
+df_churn = df_churn.withColumn("churn_rate", (F.col("churned_users") / F.col("total_users")) * 100)
+
+# Convert to Pandas for visualization
+df_churn_pd = df_churn.toPandas()
+
+import matplotlib.pyplot as plt
+
+# Sort by year
+df_churn_pd = df_churn_pd.sort_values(by="open_enrollment_cycle")
+
+# Plot churn rate
+plt.figure(figsize=(10, 5))
+plt.bar(df_churn_pd["open_enrollment_cycle"], df_churn_pd["churn_rate"], color="red", alpha=0.7)
+
+# Labels and title
+plt.xlabel("Year")
+plt.ylabel("Churn Rate (%)")
+plt.title("Churn Rate Per Year")
+plt.xticks(rotation=45)
+plt.grid(axis="y", linestyle="--", alpha=0.6)
+
+# Show the plot
+plt.show()
