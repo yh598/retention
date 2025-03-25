@@ -52,3 +52,38 @@ print(f"Final Shape after merging duplicates: ({num_rows}, {num_cols})")
 
 # Step 6: Display First Few Rows
 df.show(5)
+
+from collections import Counter
+import pyspark.sql.functions as F
+
+# Step 1: Check the Shape of the DataFrame
+num_rows = df.count()
+num_cols = len(df.columns)
+print(f"Original Shape of DataFrame: ({num_rows}, {num_cols})")
+
+# Step 2: Identify Duplicated Columns
+column_counts = Counter(df.columns)
+duplicate_columns = [col for col, count in column_counts.items() if count > 1]
+
+# Exclude 'LONGITUDE' and 'LATITUDE' from removal since we will merge them separately
+duplicate_columns = [col for col in duplicate_columns if col not in ['LONGITUDE', 'LATITUDE']]
+
+print(f"Duplicated Columns (excluding LATITUDE & LONGITUDE): {duplicate_columns}")
+
+# Step 3: Merge Longitude and Latitude columns (Keep First Non-Null Value)
+df = df.withColumn("LATITUDE", F.coalesce(F.col("LATITUDE_left"), F.col("LATITUDE_right")))
+df = df.withColumn("LONGITUDE", F.coalesce(F.col("LONGITUDE_left"), F.col("LONGITUDE_right")))
+
+# Step 4: Drop Redundant Duplicate Columns
+columns_to_drop = [col + "_left" for col in duplicate_columns] + [col + "_right" for col in duplicate_columns]
+columns_to_drop += ["LATITUDE_left", "LATITUDE_right", "LONGITUDE_left", "LONGITUDE_right"]
+
+df = df.drop(*columns_to_drop)
+
+# Step 5: Check the New Shape After Removing Duplicates
+num_rows = df.count()
+num_cols = len(df.columns)
+print(f"Final Shape after merging and cleaning: ({num_rows}, {num_cols})")
+
+# Step 6: Display First Few Rows
+df.show(5)
