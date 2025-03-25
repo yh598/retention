@@ -1,89 +1,37 @@
 from collections import Counter
-
-# Step 1: Check the Shape of the DataFrame
-num_rows = df.count()
-num_cols = len(df.columns)
-print(f"Original Shape of DataFrame: ({num_rows}, {num_cols})")
-
-# Step 2: Identify Duplicated Columns
-column_counts = Counter(df.columns)
-duplicate_columns = [col for col, count in column_counts.items() if count > 1]
-
-print(f"Duplicated Columns: {duplicate_columns}")
-
-# Step 3: Remove Duplicated Columns (Keep the first occurrence)
-if duplicate_columns:
-    df = df.drop(*duplicate_columns)
-
-# Step 4: Check the New Shape After Removing Duplicates
-num_rows = df.count()
-num_cols = len(df.columns)
-print(f"New Shape after removing duplicates: ({num_rows}, {num_cols})")
-
-# Step 5: Display the cleaned DataFrame (optional)
-df.show(5)
-
-from collections import Counter
 import pyspark.sql.functions as F
 
-# Step 1: Check the Shape of the DataFrame
+# Check the Shape of the DataFrame
 num_rows = df.count()
 num_cols = len(df.columns)
 print(f"Original Shape of DataFrame: ({num_rows}, {num_cols})")
 
-# Step 2: Identify Duplicated Columns
+# Identify Duplicate Columns
 column_counts = Counter(df.columns)
 duplicate_columns = [col for col, count in column_counts.items() if count > 1]
 
-print(f"Duplicated Columns: {duplicate_columns}")
-
-# Step 3: Merge Duplicate Columns (Keep First Non-Null Value)
-for col in duplicate_columns:
-    df = df.withColumn(col, F.coalesce(F.col(col + "_left"), F.col(col + "_right")))
-
-# Step 4: Drop Redundant Duplicate Columns
-columns_to_drop = [col + "_left" for col in duplicate_columns] + [col + "_right" for col in duplicate_columns]
-df = df.drop(*columns_to_drop)
-
-# Step 5: Check the New Shape After Removing Duplicates
-num_rows = df.count()
-num_cols = len(df.columns)
-print(f"Final Shape after merging duplicates: ({num_rows}, {num_cols})")
-
-# Step 6: Display First Few Rows
-df.show(5)
-
-from collections import Counter
-import pyspark.sql.functions as F
-
-# Step 1: Check the Shape of the DataFrame
-num_rows = df.count()
-num_cols = len(df.columns)
-print(f"Original Shape of DataFrame: ({num_rows}, {num_cols})")
-
-# Step 2: Identify Duplicated Columns
-column_counts = Counter(df.columns)
-duplicate_columns = [col for col, count in column_counts.items() if count > 1]
-
-# Exclude 'LONGITUDE' and 'LATITUDE' from removal since we will merge them separately
-duplicate_columns = [col for col in duplicate_columns if col not in ['LONGITUDE', 'LATITUDE']]
+# Find actual names of latitude/longitude columns
+lat_cols = [col for col in df.columns if "LATITUDE" in col]
+lon_cols = [col for col in df.columns if "LONGITUDE" in col]
 
 print(f"Duplicated Columns (excluding LATITUDE & LONGITUDE): {duplicate_columns}")
+print(f"Latitude Columns: {lat_cols}")
+print(f"Longitude Columns: {lon_cols}")
 
-# Step 3: Merge Longitude and Latitude columns (Keep First Non-Null Value)
-df = df.withColumn("LATITUDE", F.coalesce(F.col("LATITUDE_left"), F.col("LATITUDE_right")))
-df = df.withColumn("LONGITUDE", F.coalesce(F.col("LONGITUDE_left"), F.col("LONGITUDE_right")))
+# Merge Latitude and Longitude (Keep First Non-Null Value)
+if len(lat_cols) > 1:
+    df = df.withColumn("LATITUDE", F.coalesce(*[F.col(col) for col in lat_cols]))
 
-# Step 4: Drop Redundant Duplicate Columns
-columns_to_drop = [col + "_left" for col in duplicate_columns] + [col + "_right" for col in duplicate_columns]
-columns_to_drop += ["LATITUDE_left", "LATITUDE_right", "LONGITUDE_left", "LONGITUDE_right"]
+if len(lon_cols) > 1:
+    df = df.withColumn("LONGITUDE", F.coalesce(*[F.col(col) for col in lon_cols]))
+
+# Drop Redundant Duplicate Columns
+columns_to_drop = [col for col in duplicate_columns if col not in ["LATITUDE", "LONGITUDE"]]
+columns_to_drop += lat_cols + lon_cols  # Drop extra latitude/longitude columns after merging
 
 df = df.drop(*columns_to_drop)
 
-# Step 5: Check the New Shape After Removing Duplicates
+# Check the New Shape After Removing Duplicates
 num_rows = df.count()
 num_cols = len(df.columns)
 print(f"Final Shape after merging and cleaning: ({num_rows}, {num_cols})")
-
-# Step 6: Display First Few Rows
-df.show(5)
