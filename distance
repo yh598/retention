@@ -1,0 +1,40 @@
+import pyspark.sql.functions as F
+from pyspark.sql import SparkSession
+from math import radians, sin, cos, sqrt, atan2
+
+# Initialize Spark session
+spark = SparkSession.builder.getOrCreate()
+
+# Define Haversine formula as a UDF
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371  # Earth radius in km
+    
+    # Convert degrees to radians
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    
+    # Haversine formula
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    
+    return R * c  # Distance in km
+
+# Register as UDF
+haversine_udf = F.udf(haversine)
+
+# Load home and provider data
+home_df = spark.read.csv("home_addresses.csv", header=True, inferSchema=True)  # Replace with actual file path
+provider_df = spark.read.csv("provider_addresses.csv", header=True, inferSchema=True)  # Replace with actual file path
+
+# Join home and provider data on a relevant key (e.g., member ID, provider ID)
+df = home_df.join(provider_df, "PROVIDER_ID", "left")  # Replace with correct key
+
+# Compute distance
+df = df.withColumn("distance_km", haversine_udf(
+    F.col("HOME_LATITUDE"), F.col("HOME_LONGITUDE"), 
+    F.col("PROVIDER_LATITUDE"), F.col("PROVIDER_LONGITUDE")
+))
+
+# Show results
+df.select("HOME_LATITUDE", "HOME_LONGITUDE", "PROVIDER_LATITUDE", "PROVIDER_LONGITUDE", "distance_km").show()
