@@ -22,3 +22,33 @@ print(f"New Shape after removing duplicates: ({num_rows}, {num_cols})")
 
 # Step 5: Display the cleaned DataFrame (optional)
 df.show(5)
+
+from collections import Counter
+import pyspark.sql.functions as F
+
+# Step 1: Check the Shape of the DataFrame
+num_rows = df.count()
+num_cols = len(df.columns)
+print(f"Original Shape of DataFrame: ({num_rows}, {num_cols})")
+
+# Step 2: Identify Duplicated Columns
+column_counts = Counter(df.columns)
+duplicate_columns = [col for col, count in column_counts.items() if count > 1]
+
+print(f"Duplicated Columns: {duplicate_columns}")
+
+# Step 3: Merge Duplicate Columns (Keep First Non-Null Value)
+for col in duplicate_columns:
+    df = df.withColumn(col, F.coalesce(F.col(col + "_left"), F.col(col + "_right")))
+
+# Step 4: Drop Redundant Duplicate Columns
+columns_to_drop = [col + "_left" for col in duplicate_columns] + [col + "_right" for col in duplicate_columns]
+df = df.drop(*columns_to_drop)
+
+# Step 5: Check the New Shape After Removing Duplicates
+num_rows = df.count()
+num_cols = len(df.columns)
+print(f"Final Shape after merging duplicates: ({num_rows}, {num_cols})")
+
+# Step 6: Display First Few Rows
+df.show(5)
