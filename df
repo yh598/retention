@@ -1,0 +1,24 @@
+from collections import Counter
+
+# Step 1: Check the Shape of the DataFrame
+num_rows = df.count()
+num_cols = len(df.columns)
+print(f"Original Shape of DataFrame: ({num_rows}, {num_cols})")
+
+# Step 2: Identify Duplicated Columns
+column_counts = Counter(df.columns)
+duplicate_columns = [col for col, count in column_counts.items() if count > 1]
+
+print(f"Duplicated Columns: {duplicate_columns}")
+
+# Step 3: Remove Duplicated Columns (Keep the first occurrence)
+if duplicate_columns:
+    df = df.drop(*duplicate_columns)
+
+# Step 4: Check the New Shape After Removing Duplicates
+num_rows = df.count()
+num_cols = len(df.columns)
+print(f"New Shape after removing duplicates: ({num_rows}, {num_cols})")
+
+# Step 5: Display the cleaned DataFrame (optional)
+df.show(5)
