@@ -40,3 +40,36 @@ import pyspark.sql.functions as F
 
 # Add provider_flag column (1 if PROV_IPA_ID is not null, else 0)
 df = df.withColumn("provider_flag", F.when(F.col("PROV_IPA_ID").isNotNull(), 1).otherwise(0))
+
+import pyspark.sql.functions as F
+from math import radians, sin, cos, sqrt, atan2
+
+# Define Haversine formula as a UDF (distance in miles)
+def haversine_miles(lat1, lon1, lat2, lon2):
+    if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+        return None  # Return None if any coordinate is missing
+
+    R = 3958.8  # Earth radius in miles
+
+    # Convert degrees to radians
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+
+    # Haversine formula
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    return R * c  # Distance in miles
+
+# Register as a PySpark UDF
+haversine_miles_udf = F.udf(haversine_miles)
+
+# Calculate distance only if provider_flag = 1
+df = df.withColumn(
+    "provider_to_home_distance",
+    F.when(F.col("provider_flag") == 1,
+           haversine_miles_udf(F.col("LATITUDE"), F.col("LONGITUDE"),
+                               F.col("HOME_LATITUDE"), F.col("HOME_LONGITUDE")))
+    .otherwise(None)  # Assign None if provider_flag != 1
+)
