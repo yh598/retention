@@ -73,3 +73,16 @@ df = df.withColumn(
                                F.col("HOME_LATITUDE"), F.col("HOME_LONGITUDE")))
     .otherwise(None)  # Assign None if provider_flag != 1
 )
+
+from collections import Counter
+
+# Get column types
+column_types = [dtype for col_name, dtype in df.dtypes]
+
+# Count occurrences of each data type
+type_counts = Counter(column_types)
+
+# Display the count of each type
+print("Column Count by Data Type:")
+for dtype, count in type_counts.items():
+    print(f"{dtype}: {count}")
