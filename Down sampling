@@ -14,3 +14,85 @@ balanced_df = survival_0_downsampled.union(survival_1_df)
 
 # Show results
 balanced_df.groupBy("survival_flag").count().show()
+
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+import pandas as pd
+from imblearn.over_sampling import SMOTE
+from imblearn.under_sampling import RandomUnderSampler
+from sklearn.model_selection import train_test_split
+from catboost import CatBoostClassifier, Pool
+
+# Convert Spark DataFrame to Pandas
+pandas_df = df.toPandas()
+
+# Define target and feature columns
+target_col = "churn_flag"
+feature_cols = [col for col in pandas_df.columns if col != target_col]
+
+X = pandas_df[feature_cols]
+y = pandas_df[target_col]
+
+# Identify categorical columns
+categorical_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+
+# Convert categorical columns to strings (CatBoost handles them natively)
+for col in categorical_cols:
+    X[col] = X[col].astype(str)
+
+# Handle missing values
+X = X.fillna(-999)
+
+# Balance data using a hybrid approach (Oversampling + Undersampling)
+smote = SMOTE(sampling_strategy=0.5, random_state=42)  # Oversample minority class
+rus = RandomUnderSampler(sampling_strategy=0.8, random_state=42)  # Undersample majority class
+
+X_resampled, y_resampled = smote.fit_resample(X, y)  # Oversample
+X_resampled, y_resampled = rus.fit_resample(X_resampled, y_resampled)  # Undersample
+
+# Train-Test Split (Maintaining Class Distribution)
+X_train, X_test, y_train, y_test = train_test_split(X_resampled, y_resampled, test_size=0.2, stratify=y_resampled, random_state=42)
+
+# Compute class weights (Optional for further balancing)
+class_weights = {0: len(y_train) / (2 * (y_train == 0).sum()), 
+                 1: len(y_train) / (2 * (y_train == 1).sum())}
+
+# Use Pool object for CatBoost
+train_pool = Pool(data=X_train, label=y_train, cat_features=categorical_cols)
+test_pool = Pool(data=X_test, label=y_test, cat_features=categorical_cols)
+
+# Train a balanced CatBoost model
+catboost_model = CatBoostClassifier(
+    iterations=500, 
+    depth=6, 
+    learning_rate=0.1, 
+    class_weights=[class_weights[0], class_weights[1]],  # Applying class weights
+    verbose=0
+)
+
+# Train model
+catboost_model.fit(train_pool)
+
+# Predict and Evaluate (Optional)
+y_pred = catboost_model.predict(test_pool)
+
+print("Model Training Completed!")
+
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, datediff, to_date
+
+# Initialize Spark session (if not already initialized)
+spark = SparkSession.builder.appName("CalculateTenure").getOrCreate()
+
+# Load the data (assuming it's stored in a Delta or Parquet table)
+df = spark.read.table("ec_sbx_adv_anltcs_prd1.mbrdna_prd.tbl_tgt_mbrdna_dnmlzd_wide")
+
+# Convert date columns to proper date format and calculate tenure
+df_tenure = df.withColumn(
+    "ELIGIBLE_PERIOD_DAYS",
+    datediff(to_date(col("LAST_ELIG_MONTH_END_DT")), to_date(col("FIRST_ELIG_MONTH_START_DT")))
+)
+
+# Show results
+df_tenure.select("PERSON_PERIOD_ID", "ELIGIBLE_PERIOD_DAYS").show()
