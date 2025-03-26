@@ -86,3 +86,14 @@ type_counts = Counter(column_types)
 print("Column Count by Data Type:")
 for dtype, count in type_counts.items():
     print(f"{dtype}: {count}")
+
+from pyspark.sql.functions import col
+
+# Identify columns where all values are null or NaN
+columns_to_drop = [col_name for col_name in df.columns if df.select(col_name).filter(col(col_name).isNotNull()).count() == 0]
+
+# Drop identified columns
+df = df.drop(*columns_to_drop)
+
+# Print confirmation
+print(f"Dropped {len(columns_to_drop)} columns that contained only null or NaN values.")
