@@ -35,3 +35,8 @@ df = df.drop(*columns_to_drop)
 num_rows = df.count()
 num_cols = len(df.columns)
 print(f"Final Shape after merging and cleaning: ({num_rows}, {num_cols})")
+
+import pyspark.sql.functions as F
+
+# Add provider_flag column (1 if PROV_IPA_ID is not null, else 0)
+df = df.withColumn("provider_flag", F.when(F.col("PROV_IPA_ID").isNotNull(), 1).otherwise(0))
