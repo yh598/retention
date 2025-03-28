@@ -47,3 +47,76 @@ print(confusion_matrix(y_test, y_pred))
 
 print("\nClassification Report:")
 print(classification_report(y_test, y_pred, digits=4))
+
+# --- Imports ---
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.utils import resample
+import matplotlib.pyplot as plt
+
+# --- Step 1: Load data ---
+df = pd.read_csv('training_data.csv')
+
+# Drop unnamed column if present
+df.drop(columns=['Unnamed: 0'], errors='ignore', inplace=True)
+
+# --- Step 2: Explore class imbalance ---
+fraud_counts = df['fraud'].value_counts()
+print("Original class distribution:")
+print(fraud_counts)
+
+plt.figure(figsize=(6,4))
+fraud_counts.plot(kind='bar', color=['skyblue', 'salmon'])
+plt.title("Fraud vs. Non-Fraud Count")
+plt.xticks(ticks=[0, 1], labels=['Non-Fraud (0)', 'Fraud (1)'], rotation=0)
+plt.ylabel("Number of Records")
+plt.grid(axis='y')
+plt.tight_layout()
+plt.show()
+
+# --- Step 3: Balance the dataset (undersample majority class) ---
+df_majority = df[df.fraud == 0]
+df_minority = df[df.fraud == 1]
+
+df_majority_downsampled = resample(
+    df_majority,
+    replace=False,
+    n_samples=len(df_minority) * 5,  # 5:1 ratio (can adjust to 1:1 for full balance)
+    random_state=42
+)
+
+df_balanced = pd.concat([df_majority_downsampled, df_minority])
+df_balanced = df_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
+
+print("\nBalanced class distribution:")
+print(df_balanced['fraud'].value_counts())
+
+# --- Step 4: Feature matrix & labels ---
+X = df_balanced.drop(columns=['fraud'])
+y = df_balanced['fraud']
+
+# --- Step 5: Train/test split ---
+X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
+
+# --- Step 6: Feature scaling ---
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# --- Step 7: Train model ---
+clf = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+clf.fit(X_train_scaled, y_train)
+
+# --- Step 8: Evaluate model ---
+y_pred = clf.predict(X_test_scaled)
+
+print("\nConfusion Matrix:")
+print(confusion_matrix(y_test, y_pred))
+
+print("\nClassification Report:")
+print(classification_report(y_test, y_pred, digits=4))
+
