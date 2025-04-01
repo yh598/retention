@@ -1,0 +1,34 @@
+# Get training sample
+print(f"Pull training sample for {model_dc}.")
+
+inputs_tgt_tbl = master_config['inputs_target_table']
+targets = master_config['targets']
+
+# Get function and arguments to pull full sample
+sample_func = master_config['sample_func']
+kwargs = master_config['sample_func_params_train']
+
+# Call function to pull full data
+train_sample = getattr(ar, sample_func)(
+    inputs_tgt_tbl,
+    hive_conn,
+    model_inputs,
+    targets + [master_config['train_target']],
+    **kwargs
+)
+
+# Drop rows with any missing values
+train_sample = train_sample.dropna(how='any', axis=0)
+
+# Separate fraud and non-fraud
+fraud_df = train_sample[train_sample['fraud'] == 1]
+nonfraud_df = train_sample[train_sample['fraud'] == 0]
+
+# Downsample non-fraud to match number of fraud cases
+nonfraud_df_balanced = nonfraud_df.sample(n=len(fraud_df), random_state=42)
+
+# Concatenate to get balanced sample
+train_sample_balanced = pd.concat([fraud_df, nonfraud_df_balanced])
+
+# Optional: Shuffle the final dataset
+train_sample_balanced = train_sample_balanced.sample(frac=1, random_state=42).reset_index(drop=True)
