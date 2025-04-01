@@ -1,3 +1,16 @@
+kwargs['additional_statement'] = """
+fraud = 1
+OR (
+    fraud = 0 AND rand() <= (
+        SELECT CAST(COUNT(*) AS DOUBLE) / (SELECT COUNT(*) FROM your_table WHERE fraud = 0)
+        FROM your_table
+        WHERE fraud = 1
+    )
+)
+"""
+
+
+
 # Get training sample
 print(f"Pull training sample for {model_dc}.")
 
