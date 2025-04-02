@@ -238,3 +238,26 @@ with open(model_filename, 'wb') as f:
 
 print(f"\nCurrent model saved to: {model_filename}")
 
+conda create -n skl_compat python=3.8 scikit-learn=0.24.2 -y
+conda activate skl_compat
+
+import pickle
+import joblib
+
+# Load with old sklearn
+with open('destro_digital.pkl', 'rb') as f:
+    model = pickle.load(f)
+
+# Save using joblib
+joblib.dump(model, 'destro_digital_compat.joblib')
+
+import joblib
+
+# Load the model
+model = joblib.load('destro_digital_compat.joblib')
+
+# Predict as usual (e.g., on test data)
+y_pred = model.predict(X_test)
+y_proba = model.predict_proba(X_test)[:, 1]  # If you need probabilities
+
+
