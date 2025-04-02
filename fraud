@@ -154,3 +154,26 @@ plt.grid(True)
 plt.tight_layout()
 plt.show()
 
+from sklearn.metrics import precision_recall_curve, average_precision_score
+import matplotlib.pyplot as plt
+
+# Get predicted probabilities for the positive class
+y_proba = clf.predict_proba(X_test_scaled)[:, 1]
+
+# Calculate precision and recall
+precision, recall, thresholds = precision_recall_curve(y_test, y_proba)
+avg_precision = average_precision_score(y_test, y_proba)
+
+# Plot Precision-Recall curve
+plt.figure(figsize=(6, 6))
+plt.plot(recall, precision, label=f'PR curve (AP = {avg_precision:.4f})', color='blue')
+plt.axhline(y=0.2, color='red', linestyle='--', label='Baseline')
+
+plt.xlabel("Recall")
+plt.ylabel("Precision")
+plt.title("Precision-Recall Curve")
+plt.legend(loc="upper right")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
