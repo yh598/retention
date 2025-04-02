@@ -1,3 +1,6 @@
+X.columns = X.columns.str.replace('[^A-Za-z0-9_]', '_', regex=True)
+
+
 import matplotlib.pyplot as plt
 
 # View class distribution
