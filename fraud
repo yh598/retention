@@ -177,3 +177,64 @@ plt.grid(True)
 plt.tight_layout()
 plt.show()
 
+import pickle
+import datetime
+import matplotlib.pyplot as plt
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    roc_auc_score,
+    average_precision_score,
+    precision_recall_curve,
+    classification_report
+)
+
+# === Load production model ===
+with open('destro_digital.pkl', 'rb') as f:
+    prod_model = pickle.load(f)
+
+# === Train current model ===
+clf = RandomForestClassifier(n_estimators=100, random_state=42)
+clf.fit(X_train, y_train)
+
+# === Predict probabilities ===
+prod_probs = prod_model.predict_proba(X_test)[:, 1]
+curr_probs = clf.predict_proba(X_test)[:, 1]
+
+# === Compute metrics ===
+prod_auc = roc_auc_score(y_test, prod_probs)
+curr_auc = roc_auc_score(y_test, curr_probs)
+
+prod_ap = average_precision_score(y_test, prod_probs)
+curr_ap = average_precision_score(y_test, curr_probs)
+
+print(f"Production Model AUC: {prod_auc:.4f}, AP: {prod_ap:.4f}")
+print(f"Current Model AUC:    {curr_auc:.4f}, AP: {curr_ap:.4f}")
+
+# === Optional: Classification Report ===
+print("\nClassification Report (Current Model):")
+print(classification_report(y_test, clf.predict(X_test)))
+
+# === Plot Precision-Recall Curves ===
+precision_prod, recall_prod, _ = precision_recall_curve(y_test, prod_probs)
+precision_curr, recall_curr, _ = precision_recall_curve(y_test, curr_probs)
+
+plt.figure(figsize=(7, 5))
+plt.plot(recall_prod, precision_prod, label=f'Production (AP={prod_ap:.3f})', color='orange')
+plt.plot(recall_curr, precision_curr, label=f'Current (AP={curr_ap:.3f})', color='blue')
+plt.axhline(y=0.2, linestyle='--', color='red', label='Baseline')
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Comparison')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+# === Save current model with today's date ===
+today_str = datetime.datetime.today().strftime('%Y-%m-%d')
+model_filename = f'current_model_{today_str}.pkl'
+with open(model_filename, 'wb') as f:
+    pickle.dump(clf, f)
+
+print(f"\nCurrent model saved to: {model_filename}")
+
