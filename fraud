@@ -1,3 +1,59 @@
+import pickle
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import (
+    roc_auc_score, average_precision_score,
+    precision_recall_curve
+)
+
+# === Load models ===
+with open('destro_digital.pkl', 'rb') as f:
+    prod_model = pickle.load(f)
+
+with open('xgb_model_2025-04-02.pkl', 'rb') as f:
+    xgb_model = pickle.load(f)
+
+with open('lgb_model_2025-04-02.pkl', 'rb') as f:
+    lgb_model = pickle.load(f)
+
+# === Load OOT Data ===
+df = pd.read_csv('oot_data.csv')
+df.drop(columns=['Unnamed: 0'], errors='ignore', inplace=True)
+X_oot = df.drop(columns=['fraud', 'usaa_party_pd_id'])
+y_oot = df['fraud']
+
+# === Predict probabilities ===
+probs = {
+    'Production': prod_model.predict_proba(X_oot)[:, 1],
+    'XGBoost': xgb_model.predict_proba(X_oot)[:, 1],
+    'LightGBM': lgb_model.predict_proba(X_oot)[:, 1]
+}
+
+# === Compute and print metrics ===
+print("Model Comparison on OOT Data:")
+metrics = []
+for name, prob in probs.items():
+    auc = roc_auc_score(y_oot, prob)
+    ap = average_precision_score(y_oot, prob)
+    metrics.append((name, auc, ap))
+    print(f"{name}: AUC = {auc:.4f}, PR-AUC = {ap:.4f}")
+
+# === Plot PR Curves ===
+plt.figure(figsize=(8, 6))
+for name, prob in probs.items():
+    precision, recall, _ = precision_recall_curve(y_oot, prob)
+    ap = average_precision_score(y_oot, prob)
+    plt.plot(recall, precision, label=f'{name} (AP={ap:.4f})')
+
+plt.xlabel('Recall')
+plt.ylabel('Precision')
+plt.title('Precision-Recall Comparison (OOT Data)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
 X.columns = X.columns.str.replace('[^A-Za-z0-9_]', '_', regex=True)
 
 
