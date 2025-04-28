@@ -19,6 +19,55 @@ df = spark.read.format("binaryfile") \
     .schema(schema) \
     .load(path)
 
+# Extract filename and folder
+df = df.withColumn("filename", F.element_at(F.split("path", "/"), -1)) \
+       .withColumn("folder", F.element_at(F.split("path", "/"), -2))
+
+# Extract year-month from filename
+df = df.withColumn("month", F.regexp_extract("filename", r"(\d{4}-\d{2})", 1))
+
+# ----- Remove rows with empty month -----
+df = df.filter(F.col("month") != "")
+
+# Group by folder and month, sum length
+space_by_folder_month = df.groupBy("folder", "month").agg(F.sum("length").alias("total_bytes"))
+
+# Convert to MB
+space_by_folder_month = space_by_folder_month.withColumn("total_mb", F.round(space_by_folder_month["total_bytes"] / (1024 * 1024), 2))
+
+# Order nicely
+space_by_folder_month = space_by_folder_month.orderBy("folder", "month")
+
+# (Optional) Calculate total per folder
+folder_totals = space_by_folder_month.groupBy("folder").agg(F.sum("total_mb").alias("folder_total_mb"))
+
+# Display
+display(space_by_folder_month)
+display(folder_totals)
+
+
+
+from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType, BinaryType
+from pyspark.sql import functions as F
+
+# Set your path
+path = "/Volumes/prod_adb/default/synapse_volume/raw/surveyspeechextraction/"
+
+# Define schema
+schema = StructType([
+    StructField("path", StringType(), False),
+    StructField("modificationTime", TimestampType(), False),
+    StructField("length", LongType(), False),
+    StructField("content", BinaryType(), True)
+])
+
+# Read files recursively
+df = spark.read.format("binaryfile") \
+    .option("pathGlobFilter", "*.zip") \
+    .option("recursiveFileLookup", "true") \
+    .schema(schema) \
+    .load(path)
+
 # Extract filename
 df = df.withColumn("filename", F.element_at(F.split("path", "/"), -1))
 
