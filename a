@@ -31,6 +31,58 @@ space_by_month = df.groupBy("month").agg(F.sum("length").alias("total_bytes"))
 # Convert bytes to MB
 space_by_month = space_by_month.withColumn("total_mb", F.round(space_by_month["total_bytes"] / (1024 * 1024), 2))
 
+# Keep only necessary columns
+space_by_month = space_by_month.select("month", "total_mb").orderBy("month")
+
+# ----- Add total row -----
+# 1. Sum total
+total_sum = space_by_month.agg(F.sum("total_mb")).collect()[0][0]
+
+# 2. Create total row manually
+from pyspark.sql import Row
+total_row = spark.createDataFrame([Row(month="Total", total_mb=round(total_sum, 2))])
+
+# 3. Union original + total row
+final_result = space_by_month.unionByName(total_row)
+
+# Display
+display(final_result)
+
+
+
+from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType, BinaryType
+from pyspark.sql import functions as F
+
+# Set your path
+path = "/Volumes/prod_adb/default/synapse_volume/raw/surveyspeechextraction/"
+
+# Define schema
+schema = StructType([
+    StructField("path", StringType(), False),
+    StructField("modificationTime", TimestampType(), False),
+    StructField("length", LongType(), False),
+    StructField("content", BinaryType(), True)
+])
+
+# Read files recursively
+df = spark.read.format("binaryfile") \
+    .option("pathGlobFilter", "*.zip") \
+    .option("recursiveFileLookup", "true") \
+    .schema(schema) \
+    .load(path)
+
+# Extract filename
+df = df.withColumn("filename", F.element_at(F.split("path", "/"), -1))
+
+# Extract year-month from filename
+df = df.withColumn("month", F.regexp_extract("filename", r"(\d{4}-\d{2})", 1))
+
+# Group by month and sum
+space_by_month = df.groupBy("month").agg(F.sum("length").alias("total_bytes"))
+
+# Convert bytes to MB
+space_by_month = space_by_month.withColumn("total_mb", F.round(space_by_month["total_bytes"] / (1024 * 1024), 2))
+
 # Optionally convert to GB if preferred
 space_by_month = space_by_month.withColumn("total_gb", F.round(space_by_month["total_bytes"] / (1024 * 1024 * 1024), 2))
 
