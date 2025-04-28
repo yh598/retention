@@ -12,6 +12,54 @@ schema = StructType([
     StructField("content", BinaryType(), True)
 ])
 
+# Read files recursively
+df = spark.read.format("binaryfile") \
+    .option("pathGlobFilter", "*.zip") \
+    .option("recursiveFileLookup", "true") \
+    .schema(schema) \
+    .load(path)
+
+# Extract filename
+df = df.withColumn("filename", F.element_at(F.split("path", "/"), -1))
+
+# Extract year-month from filename
+df = df.withColumn("month", F.regexp_extract("filename", r"(\d{4}-\d{2})", 1))
+
+# Group by month and sum
+space_by_month = df.groupBy("month").agg(F.sum("length").alias("total_bytes"))
+
+# Convert bytes to MB
+space_by_month = space_by_month.withColumn("total_mb", F.round(space_by_month["total_bytes"] / (1024 * 1024), 2))
+
+# Optionally convert to GB if preferred
+space_by_month = space_by_month.withColumn("total_gb", F.round(space_by_month["total_bytes"] / (1024 * 1024 * 1024), 2))
+
+# Select final columns you want to display: MB only or GB only
+# If you want MB only:
+final_result_mb = space_by_month.select("month", "total_mb")
+
+# If you want GB only:
+final_result_gb = space_by_month.select("month", "total_gb")
+
+# Display (choose one)
+display(final_result_mb)
+# display(final_result_gb)   # uncomment if you want GB instead
+
+
+from pyspark.sql.types import StructType, StructField, StringType, LongType, TimestampType, BinaryType
+from pyspark.sql import functions as F
+
+# Set your path
+path = "/Volumes/prod_adb/default/synapse_volume/raw/surveyspeechextraction/"
+
+# Define schema
+schema = StructType([
+    StructField("path", StringType(), False),
+    StructField("modificationTime", TimestampType(), False),
+    StructField("length", LongType(), False),
+    StructField("content", BinaryType(), True)
+])
+
 # Read files with recursive lookup
 df = spark.read.format("binaryfile") \
     .option("pathGlobFilter", "*.zip") \
