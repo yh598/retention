@@ -1,3 +1,36 @@
+# Define the LOBs and table name pattern
+lob_list = [
+    "broker", "core_premier", "ifp", "ma", "medical", "provider", "small_group"
+]
+base_table_path = "dbc_adv_analytics_dev.surveyspeechextraction.{}_work_call_intent"
+
+# Initialize empty result list
+df_list = []
+
+# Loop over each LOB
+for lob in lob_list:
+    table_name = base_table_path.format(lob)
+    query = f"""
+        SELECT
+            '{lob}' AS lob,
+            CONVERSATION_START_DATE,
+            COUNT(DISTINCT CONVERSATION_FILENAME) AS fileCount
+        FROM {table_name}
+        GROUP BY CONVERSATION_START_DATE
+    """
+    df = spark.sql(query)
+    df_list.append(df)
+
+# Merge all LOB results
+merged_df = df_list[0]
+for df in df_list[1:]:
+    merged_df = merged_df.union(df)
+
+# Display the consolidated result
+display(merged_df.orderBy("CONVERSATION_START_DATE", "lob"))
+
+
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import input_file_name, regexp_extract
 
