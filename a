@@ -1,6 +1,37 @@
 from pyspark.sql.functions import input_file_name, regexp_extract
 import os
 
+vendors = ["Broker", "Core Premier", "IFP", "MA", "Medical", "Provider", "Small Group"]
+base_path = "/Volumes/dbc_adv_anlaytics_dev/surveyspeechextraction/call_intent_workspace/common_filter/"
+
+df_list = []
+
+for vendor in vendors:
+    full_path = os.path.join(base_path, vendor, "date", "to_process", "*")
+    try:
+        df = spark.read.format("binaryFile").load(full_path)
+        df = df.withColumn("vendor", regexp_extract("path", r"/common_filter/([^/]+)/", 1)) \
+               .withColumn("date", regexp_extract("path", r"/date/to_process/(\d{4}-\d{2}-\d{2})/", 1))
+        df_list.append(df)
+    except Exception as e:
+        print(f"Skipping {vendor}: {e}")
+
+# Combine all vendors' data
+if df_list:
+    combined_df = df_list[0]
+    for df in df_list[1:]:
+        combined_df = combined_df.union(df)
+
+    # Count files by vendor and date
+    result = combined_df.groupBy("vendor", "date").count().orderBy("vendor", "date")
+    display(result)
+else:
+    print("No files found in any LOB folders.")
+
+
+from pyspark.sql.functions import input_file_name, regexp_extract
+import os
+
 # Define your base folder and target subfolders
 base_path = "/Volumes/dbc_adv_anlaytics_dev/surveyspeechextraction/call_intent_workspace/common_filter/"
 folders = ["Broker", "Core Premier", "IFP", "MA", "Medical", "Provider", "Small Group"]
