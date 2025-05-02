@@ -1,3 +1,37 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import input_file_name, regexp_extract
+
+# Initialize Spark session
+spark = SparkSession.builder.appName("DailyFileVolumeReport").getOrCreate()
+
+# Base path to common_filter directory
+base_path = "/Volumes/dbc_adv_anlaytics_dev/surveyspeechextraction/call_intent_workspace/common_filter"
+
+# Load all files under common_filter recursively
+files_df = spark.read.format("binaryFile") \
+    .option("recursiveFileLookup", "true") \
+    .load(base_path)
+
+# Keep only files in 'to_process' folders
+filtered_df = files_df.filter(files_df.path.contains("/to_process/"))
+
+# Extract LOB, date, and vendor from path
+pattern = r".*/common_filter/([^/]+)/([^/]+)/to_process/([^/]+)/.*"
+
+parsed_df = filtered_df \
+    .withColumn("LOB", regexp_extract("path", pattern, 1)) \
+    .withColumn("Date", regexp_extract("path", pattern, 2)) \
+    .withColumn("Vendor", regexp_extract("path", pattern, 3))
+
+# Group and count files by LOB, Date, and Vendor
+result_df = parsed_df.groupBy("LOB", "Date", "Vendor").count() \
+                     .withColumnRenamed("count", "FileCount") \
+                     .orderBy("LOB", "Date", "Vendor")
+
+# Display the result
+display(result_df)
+
+
 from pyspark.sql.functions import input_file_name, regexp_extract
 import os
 
